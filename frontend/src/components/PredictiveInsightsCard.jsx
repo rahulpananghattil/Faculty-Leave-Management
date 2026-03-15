@@ -34,18 +34,58 @@ const PredictiveInsightsCard = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
+    console.log("🚀 PredictiveInsightsCard mounted");
     fetchPredictions();
   }, []);
+
+  const sanitizePredictions = (data) => {
+    return {
+      riskAnalysis: {
+        criticalWeeks: Array.isArray(data?.riskAnalysis?.criticalWeeks)
+          ? data.riskAnalysis.criticalWeeks.filter(
+              (w) => w && typeof w === "object",
+            )
+          : [],
+        mediumRiskWeeks: Array.isArray(data?.riskAnalysis?.mediumRiskWeeks)
+          ? data.riskAnalysis.mediumRiskWeeks.filter(
+              (w) => w && typeof w === "object",
+            )
+          : [],
+        lowRiskWeeks: Array.isArray(data?.riskAnalysis?.lowRiskWeeks)
+          ? data.riskAnalysis.lowRiskWeeks.filter(
+              (w) => w && typeof w === "object",
+            )
+          : [],
+      },
+      recommendations: Array.isArray(data?.recommendations)
+        ? data.recommendations.filter((r) => r && typeof r === "object")
+        : [],
+      departmentInsights: data?.departmentInsights || {},
+      patterns: data?.patterns || {},
+    };
+  };
 
   const fetchPredictions = async () => {
     try {
       setLoading(true);
       setError(null);
+      console.log("📡 Fetching system-wide predictions...");
+
+      // ✅ NO department parameter - system-wide analysis
       const response = await predictiveService.getPredictions();
-      setPredictions(response.data);
+      console.log("✅ Response:", response);
+
+      if (response?.data) {
+        const dataToSanitize = response.data.data || response.data;
+        const sanitized = sanitizePredictions(dataToSanitize);
+        console.log("✅ Sanitized:", sanitized);
+        setPredictions(sanitized);
+      } else {
+        setError("No prediction data received");
+      }
     } catch (err) {
-      console.error("Error fetching predictions:", err);
-      setError("Failed to load predictions. Please try again.");
+      console.error("❌ Error:", err);
+      setError(`Failed to load predictions: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -55,7 +95,11 @@ const PredictiveInsightsCard = () => {
     try {
       setRefreshing(true);
       const response = await predictiveService.regeneratePredictions();
-      setPredictions(response.data);
+      if (response?.data) {
+        const dataToSanitize = response.data.data || response.data;
+        const sanitized = sanitizePredictions(dataToSanitize);
+        setPredictions(sanitized);
+      }
     } catch (err) {
       console.error("Error regenerating predictions:", err);
       setError("Failed to refresh predictions. Please try again.");
@@ -80,8 +124,7 @@ const PredictiveInsightsCard = () => {
       </Alert>
     );
 
-  const { riskAnalysis, recommendations, departmentInsights, patterns } =
-    predictions;
+  const { riskAnalysis, recommendations, departmentInsights } = predictions;
 
   return (
     <Card
@@ -121,11 +164,7 @@ const PredictiveInsightsCard = () => {
             </Box>
             <Box>
               <Typography
-                sx={{
-                  fontSize: "1.1rem",
-                  fontWeight: 700,
-                  color: "#0f172a",
-                }}
+                sx={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}
               >
                 📊 Predictive Insights
               </Typography>
@@ -139,10 +178,7 @@ const PredictiveInsightsCard = () => {
               onClick={handleRefresh}
               disabled={refreshing}
               size="small"
-              sx={{
-                bgcolor: "#f3f4f6",
-                "&:hover": { bgcolor: "#e5e7eb" },
-              }}
+              sx={{ bgcolor: "#f3f4f6", "&:hover": { bgcolor: "#e5e7eb" } }}
             >
               {refreshing ? (
                 <CircularProgress size={20} />
@@ -157,20 +193,13 @@ const PredictiveInsightsCard = () => {
         <Box sx={{ p: 3.5 }}>
           {/* Risk Analysis Section */}
           <Box sx={{ mb: 3 }}>
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                mb: 2,
-              }}
-            >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
               <Warning sx={{ fontSize: 20, color: "#f59e0b" }} />
               <Typography sx={{ fontWeight: 700, fontSize: "1rem" }}>
                 High-Risk Weeks
               </Typography>
               <Chip
-                label={riskAnalysis?.criticalWeeks?.length || 0}
+                label={`${riskAnalysis?.criticalWeeks?.length || 0}`}
                 size="small"
                 sx={{
                   bgcolor: "#fee2e2",
@@ -181,82 +210,96 @@ const PredictiveInsightsCard = () => {
               />
             </Box>
 
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              {riskAnalysis?.criticalWeeks?.map((week, idx) => (
-                <Box
-                  key={idx}
-                  sx={{
-                    p: 1.5,
-                    bgcolor: "#fef9c3",
-                    borderRadius: "8px",
-                    border: "1px solid #fcd34d",
-                  }}
-                >
+            {riskAnalysis?.criticalWeeks &&
+            riskAnalysis.criticalWeeks.length > 0 ? (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                {riskAnalysis.criticalWeeks.map((week, idx) => (
                   <Box
+                    key={idx}
                     sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      mb: 0.8,
+                      p: 1.5,
+                      bgcolor: "#fef9c3",
+                      borderRadius: "8px",
+                      border: "1px solid #fcd34d",
                     }}
                   >
-                    <Typography sx={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                      {week.week}
-                    </Typography>
-                    <Chip
-                      label={`${week.percentage}%`}
-                      size="small"
-                      sx={{
-                        bgcolor: "#f59e0b",
-                        color: "white",
-                        fontWeight: 700,
-                      }}
-                    />
-                  </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={week.percentage}
-                    sx={{
-                      height: 6,
-                      borderRadius: 3,
-                      bgcolor: "#fcd34d",
-                      mb: 0.8,
-                      "& .MuiLinearProgress-bar": {
-                        bgcolor: "#f59e0b",
-                        borderRadius: 3,
-                      },
-                    }}
-                  />
-                  {week.departments && week.departments.length > 0 && (
                     <Box
                       sx={{
                         display: "flex",
-                        gap: 0.5,
+                        justifyContent: "space-between",
+                        alignItems: "center",
                         mb: 0.8,
-                        flexWrap: "wrap",
                       }}
                     >
-                      {week.departments.map((dept) => (
-                        <Chip
-                          key={dept}
-                          label={dept}
-                          size="small"
-                          sx={{
-                            bgcolor: "#ffffff",
-                            color: "#854d0e",
-                            fontWeight: 600,
-                            fontSize: "0.7rem",
-                          }}
-                        />
-                      ))}
+                      <Typography sx={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                        {typeof week.week === "string"
+                          ? week.week
+                          : `Week ${idx + 1}`}
+                      </Typography>
+                      <Chip
+                        label={`${typeof week.percentage === "number" ? week.percentage : 0}%`}
+                        size="small"
+                        sx={{
+                          bgcolor: "#f59e0b",
+                          color: "white",
+                          fontWeight: 700,
+                        }}
+                      />
                     </Box>
-                  )}
-                  <Typography sx={{ fontSize: "0.8rem", color: "#854d0e" }}>
-                    💡 {week.recommendation}
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={
+                        typeof week.percentage === "number"
+                          ? Math.min(week.percentage, 100)
+                          : 0
+                      }
+                      sx={{
+                        height: 6,
+                        borderRadius: 3,
+                        bgcolor: "#fcd34d",
+                        mb: 0.8,
+                        "& .MuiLinearProgress-bar": { bgcolor: "#f59e0b" },
+                      }}
+                    />
+                    {Array.isArray(week.departments) &&
+                      week.departments.length > 0 && (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            gap: 0.5,
+                            mb: 0.8,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {week.departments.map((dept, deptIdx) => (
+                            <Chip
+                              key={deptIdx}
+                              label={
+                                typeof dept === "string" ? dept : "Department"
+                              }
+                              size="small"
+                              sx={{
+                                bgcolor: "#ffffff",
+                                color: "#854d0e",
+                                fontWeight: 600,
+                                fontSize: "0.7rem",
+                              }}
+                            />
+                          ))}
+                        </Box>
+                      )}
+                    <Typography sx={{ fontSize: "0.8rem", color: "#854d0e" }}>
+                      💡{" "}
+                      {typeof week.recommendation === "string"
+                        ? week.recommendation
+                        : "Monitor this period"}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            ) : (
+              <Alert severity="success">✅ No high-risk weeks predicted</Alert>
+            )}
           </Box>
 
           <Divider sx={{ my: 2 }} />
@@ -280,62 +323,83 @@ const PredictiveInsightsCard = () => {
               />
             </Box>
 
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              {recommendations?.map((rec, idx) => {
-                const priorityColor = {
-                  HIGH: "#ef4444",
-                  MEDIUM: "#f59e0b",
-                  LOW: "#10b981",
-                };
-                return (
-                  <Box
-                    key={idx}
-                    sx={{
-                      p: 1.5,
-                      bgcolor: "#f9fafb",
-                      borderRadius: "8px",
-                      border: `2px solid ${priorityColor[rec.priority] || "#e5e7eb"}`,
-                    }}
-                  >
+            {recommendations && recommendations.length > 0 ? (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                {recommendations.map((rec, idx) => {
+                  const priorityColor = {
+                    HIGH: "#ef4444",
+                    MEDIUM: "#f59e0b",
+                    LOW: "#10b981",
+                  };
+                  return (
                     <Box
+                      key={idx}
                       sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        mb: 0.8,
+                        p: 1.5,
+                        bgcolor: "#f9fafb",
+                        borderRadius: "8px",
+                        border: `2px solid ${priorityColor[rec.priority] || "#e5e7eb"}`,
                       }}
                     >
-                      <Typography sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                        {rec.action}
-                      </Typography>
-                      <Chip
-                        label={rec.priority}
-                        size="small"
+                      <Box
                         sx={{
-                          bgcolor: priorityColor[rec.priority],
-                          color: "white",
-                          fontWeight: 700,
-                          fontSize: "0.7rem",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          mb: 0.8,
                         }}
-                      />
+                      >
+                        <Typography
+                          sx={{ fontWeight: 700, fontSize: "0.95rem" }}
+                        >
+                          {typeof rec.action === "string"
+                            ? rec.action
+                            : "Action Required"}
+                        </Typography>
+                        <Chip
+                          label={
+                            typeof rec.priority === "string"
+                              ? rec.priority
+                              : "MEDIUM"
+                          }
+                          size="small"
+                          sx={{
+                            bgcolor: priorityColor[rec.priority] || "#e5e7eb",
+                            color: "white",
+                            fontWeight: 700,
+                            fontSize: "0.7rem",
+                          }}
+                        />
+                      </Box>
+                      <Typography
+                        sx={{ fontSize: "0.8rem", color: "#6b7280", mb: 0.8 }}
+                      >
+                        📌{" "}
+                        {typeof rec.reason === "string"
+                          ? rec.reason
+                          : "Review this item"}
+                      </Typography>
+                      <Typography
+                        sx={{ fontSize: "0.8rem", color: "#374151", mb: 0.5 }}
+                      >
+                        ⏰ <strong>Timing:</strong>{" "}
+                        {typeof rec.suggestedTiming === "string"
+                          ? rec.suggestedTiming
+                          : "ASAP"}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.8rem", color: "#374151" }}>
+                        💥 <strong>Impact:</strong>{" "}
+                        {typeof rec.impact === "string"
+                          ? rec.impact
+                          : "Recommended"}
+                      </Typography>
                     </Box>
-                    <Typography
-                      sx={{ fontSize: "0.8rem", color: "#6b7280", mb: 0.8 }}
-                    >
-                      📌 {rec.reason}
-                    </Typography>
-                    <Typography
-                      sx={{ fontSize: "0.8rem", color: "#374151", mb: 0.5 }}
-                    >
-                      ⏰ <strong>Timing:</strong> {rec.suggestedTiming}
-                    </Typography>
-                    <Typography sx={{ fontSize: "0.8rem", color: "#374151" }}>
-                      💥 <strong>Impact:</strong> {rec.impact}
-                    </Typography>
-                  </Box>
-                );
-              })}
-            </Box>
+                  );
+                })}
+              </Box>
+            ) : (
+              <Alert severity="info">No action items at this time</Alert>
+            )}
           </Box>
 
           <Divider sx={{ my: 2 }} />
@@ -349,94 +413,103 @@ const PredictiveInsightsCard = () => {
               </Typography>
             </Box>
 
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                gap: 1.5,
-              }}
-            >
-              {Object.entries(departmentInsights || {}).map(
-                ([dept, insights]) => (
-                  <Box
-                    key={dept}
-                    sx={{
-                      p: 1.5,
-                      bgcolor: "#f0fdf4",
-                      borderRadius: "8px",
-                      border: "1px solid #bbf7d0",
-                    }}
-                  >
-                    <Typography
-                      sx={{ fontWeight: 700, fontSize: "0.9rem", mb: 0.5 }}
-                    >
-                      {dept}
-                    </Typography>
+            {Object.keys(departmentInsights || {}).length > 0 ? (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: 1.5,
+                }}
+              >
+                {Object.entries(departmentInsights || {}).map(
+                  ([dept, insights]) => (
                     <Box
+                      key={dept}
                       sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        mb: 0.8,
+                        p: 1.5,
+                        bgcolor: "#f0fdf4",
+                        borderRadius: "8px",
+                        border: "1px solid #bbf7d0",
                       }}
                     >
                       <Typography
-                        sx={{ fontSize: "0.8rem", color: "text.secondary" }}
+                        sx={{ fontWeight: 700, fontSize: "0.9rem", mb: 0.5 }}
                       >
-                        High-risk weeks:
+                        {typeof dept === "string" ? dept : "Department"}
                       </Typography>
-                      <Chip
-                        label={insights?.highRiskWeeks || 0}
-                        size="small"
+                      <Box
                         sx={{
-                          bgcolor: "#dcfce7",
-                          color: "#166534",
-                          fontWeight: 700,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          mb: 0.8,
                         }}
-                      />
-                    </Box>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Typography
-                        sx={{ fontSize: "0.8rem", color: "text.secondary" }}
                       >
-                        Leave %:
-                      </Typography>
-                      <LinearProgress
-                        variant="determinate"
-                        value={insights?.expectedLeavePercentage || 0}
+                        <Typography
+                          sx={{ fontSize: "0.8rem", color: "text.secondary" }}
+                        >
+                          High-risk weeks:
+                        </Typography>
+                        <Chip
+                          label={`${typeof insights?.highRiskWeeks === "number" ? insights.highRiskWeeks : 0}`}
+                          size="small"
+                          sx={{
+                            bgcolor: "#dcfce7",
+                            color: "#166534",
+                            fontWeight: 700,
+                          }}
+                        />
+                      </Box>
+                      <Box
                         sx={{
-                          flex: 1,
-                          ml: 1,
-                          height: 4,
-                          borderRadius: 2,
-                          bgcolor: "#e5e7eb",
-                          "& .MuiLinearProgress-bar": {
-                            bgcolor: "#10b981",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Typography
+                          sx={{ fontSize: "0.8rem", color: "text.secondary" }}
+                        >
+                          Leave %:
+                        </Typography>
+                        <LinearProgress
+                          variant="determinate"
+                          value={
+                            typeof insights?.expectedLeavePercentage ===
+                            "number"
+                              ? Math.min(insights.expectedLeavePercentage, 100)
+                              : 0
+                          }
+                          sx={{
+                            flex: 1,
+                            ml: 1,
+                            height: 4,
                             borderRadius: 2,
-                          },
-                        }}
-                      />
-                      <Typography
-                        sx={{
-                          fontSize: "0.8rem",
-                          fontWeight: 700,
-                          ml: 1,
-                          color: "#10b981",
-                        }}
-                      >
-                        {insights?.expectedLeavePercentage || 0}%
-                      </Typography>
+                            bgcolor: "#e5e7eb",
+                            "& .MuiLinearProgress-bar": { bgcolor: "#10b981" },
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontSize: "0.8rem",
+                            fontWeight: 700,
+                            ml: 1,
+                            color: "#10b981",
+                          }}
+                        >
+                          {typeof insights?.expectedLeavePercentage === "number"
+                            ? insights.expectedLeavePercentage
+                            : 0}
+                          %
+                        </Typography>
+                      </Box>
                     </Box>
-                  </Box>
-                ),
-              )}
-            </Box>
+                  ),
+                )}
+              </Box>
+            ) : (
+              <Alert severity="info">No department insights available</Alert>
+            )}
           </Box>
         </Box>
       </CardContent>

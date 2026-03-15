@@ -1,3 +1,6 @@
+import PredictiveInsightsCard from "../components/PredictiveInsightsCard";
+import DepartmentPredictiveCard from "../components/DepartmentPredictiveCard";
+import InsightsSkeleton from "../components/InsightsSkeleton";
 import React, { useEffect, useState } from "react";
 import {
   Grid,
@@ -775,16 +778,15 @@ const AdminLeaveMonthlyTable = ({ leaves, allUsers }) => {
   const currentMonth = new Date().getMonth();
   const currentYear = new Date().getFullYear();
 
+  // ✅ FIXED: Filter approved leaves from current month
   const monthlyLeaves = leaves.filter((leave) => {
+    if (leave.status !== "approved") return false;
     const leaveMonth = new Date(leave.startDate).getMonth();
     const leaveYear = new Date(leave.startDate).getFullYear();
-    return (
-      leave.status === "approved" &&
-      leaveMonth === currentMonth &&
-      leaveYear === currentYear
-    );
+    return leaveMonth === currentMonth && leaveYear === currentYear;
   });
 
+  // Group by faculty
   const facultyLeaveStats = monthlyLeaves.reduce((acc, leave) => {
     const facultyId = leave.faculty?._id;
     if (!acc[facultyId]) {
@@ -1755,13 +1757,17 @@ const FinalApprovalQueueAdmin = ({ leaves }) => {
 /* Institutional Analytics */
 const InstitutionalAnalytics = ({ leaves, allUsers }) => {
   const todaysDate = new Date();
-  const todayOnLeave = leaves.filter(
-    (l) =>
-      l.status === "approved" &&
-      new Date(l.startDate) <= todaysDate &&
-      new Date(l.endDate) >= todaysDate,
-  ).length;
 
+  // ✅ Filter: Approved leaves that overlap with today
+  const todayOnLeave = leaves.filter((l) => {
+    if (l.status !== "approved") return false;
+    const startDate = new Date(l.startDate);
+    const endDate = new Date(l.endDate);
+    // Check if today is within the leave period
+    return startDate <= todaysDate && endDate >= todaysDate;
+  }).length;
+
+  // ✅ Department distribution - count approved leaves by department
   const departmentDistribution = {};
   leaves
     .filter((l) => l.status === "approved")
@@ -1770,13 +1776,11 @@ const InstitutionalAnalytics = ({ leaves, allUsers }) => {
       departmentDistribution[dept] = (departmentDistribution[dept] || 0) + 1;
     });
 
-  // ✅ IMPROVED: Show all departments sorted by activity
   const sortedDepts = Object.entries(departmentDistribution).sort(
     ([, a], [, b]) => b - a,
   );
 
   const topDept = sortedDepts[0];
-  const secondDept = sortedDepts[1];
 
   return (
     <Grid container spacing={2} sx={{ mb: 2.5 }}>
@@ -1804,7 +1808,7 @@ const InstitutionalAnalytics = ({ leaves, allUsers }) => {
                 <Typography
                   sx={{ fontSize: "0.75rem", color: "text.disabled" }}
                 >
-                  of {allUsers.length} employees
+                  of {allUsers?.length || 0} employees
                 </Typography>
               </Box>
               <Box
@@ -1846,25 +1850,11 @@ const InstitutionalAnalytics = ({ leaves, allUsers }) => {
                 >
                   {topDept?.[0] || "—"}
                 </Typography>
-                <Box
-                  sx={{
-                    display: "flex",
-                    gap: 1,
-                    mt: 0.5,
-                    alignItems: "center",
-                  }}
+                <Typography
+                  sx={{ fontSize: "0.75rem", color: "text.disabled" }}
                 >
-                  <Typography
-                    sx={{ fontSize: "0.75rem", color: "text.disabled" }}
-                  >
-                    {topDept?.[1] || 0} leaves
-                  </Typography>
-                  {secondDept && (
-                    <Typography sx={{ fontSize: "0.65rem", color: "#9ca3af" }}>
-                      • 2nd: {secondDept[0]} ({secondDept[1]})
-                    </Typography>
-                  )}
-                </Box>
+                  {topDept?.[1] || 0} leaves
+                </Typography>
               </Box>
               <Box
                 sx={{
@@ -1883,86 +1873,6 @@ const InstitutionalAnalytics = ({ leaves, allUsers }) => {
           </CardContent>
         </Card>
       </Grid>
-
-      {/* NEW: Department Breakdown Table */}
-      {sortedDepts.length > 0 && (
-        <Grid item xs={12}>
-          <Card sx={{ borderRadius: "12px" }}>
-            <CardContent sx={{ p: 2.5 }}>
-              <Typography
-                sx={{ fontWeight: 700, mb: 1.5, fontSize: "0.95rem" }}
-              >
-                Leave Activity by Department
-              </Typography>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {sortedDepts.map(([dept, count], idx) => (
-                  <Box
-                    key={dept}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      p: 1.5,
-                      bgcolor: idx === 0 ? "#f5f3ff" : "background.default",
-                      borderRadius: "8px",
-                      border: idx === 0 ? "1px solid #e0d7ff" : "none",
-                    }}
-                  >
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Box
-                        sx={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: "8px",
-                          bgcolor: `${"#7c3aed"}15`,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        {idx + 1}
-                      </Box>
-                      <Typography sx={{ fontWeight: 600, fontSize: "0.9rem" }}>
-                        {dept}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={
-                          (count / Math.max(...sortedDepts.map(([, c]) => c))) *
-                          100
-                        }
-                        sx={{
-                          width: 80,
-                          height: 6,
-                          borderRadius: 3,
-                          bgcolor: "#e5e7eb",
-                          "& .MuiLinearProgress-bar": {
-                            bgcolor: "#7c3aed",
-                            borderRadius: 3,
-                          },
-                        }}
-                      />
-                      <Chip
-                        label={`${count}`}
-                        size="small"
-                        sx={{
-                          bgcolor: "#f0f4ff",
-                          color: "#7c3aed",
-                          fontWeight: 700,
-                          minWidth: 40,
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      )}
     </Grid>
   );
 };
@@ -2144,6 +2054,7 @@ const DashboardPage = () => {
                 leaves={leaves}
                 userDepartment={user?.department}
               />
+              <DepartmentPredictiveCard />
               <PendingApprovalsListHOD
                 leaves={leaves}
                 userDepartment={user?.department}
@@ -2180,6 +2091,7 @@ const DashboardPage = () => {
             </Box>
 
             <InstitutionalAnalytics leaves={leaves} allUsers={allUsers} />
+            <PredictiveInsightsCard />
             <AdminLeaveMonthlyTable leaves={leaves} allUsers={allUsers} />
             <FinalApprovalQueueAdmin leaves={leaves} />
           </Box>

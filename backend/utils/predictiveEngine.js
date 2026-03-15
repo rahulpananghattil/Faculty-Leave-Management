@@ -13,68 +13,227 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
    Data Aggregation for Gemini
    ──────────────────────────────────────────────────────────── */
 
-const aggregateHistoricalData = async (months = 12) => {
-  const pastDate = new Date();
-  pastDate.setMonth(pastDate.getMonth() - months);
+/**
+ * Aggregate Historical Leave Data from Database
+ * ✅ NOW USES REAL DATA from MongoDB, not static mock data
+ */
 
-  const leaves = await Leave.find({
-    createdAt: { $gte: pastDate },
-    status: "approved",
-  })
-    .populate("faculty", "name department email")
-    .lean();
-
-  if (!leaves.length) {
-    return {
-      totalLeaves: 0,
-      byMonth: {},
-      byDepartment: {},
-      byType: {},
-      averageLeavesByFaculty: 0,
+/**
+ * Validate and sanitize Gemini response
+ */
+const validateAndSanitizeResponse = (prediction) => {
+  if (!prediction.riskAnalysis) {
+    prediction.riskAnalysis = {
+      criticalWeeks: [],
+      mediumRiskWeeks: [],
+      lowRiskWeeks: [],
     };
   }
 
-  const MONTHS_ARR = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
+  // Sanitize critical weeks
+  prediction.riskAnalysis.criticalWeeks = (
+    prediction.riskAnalysis.criticalWeeks || []
+  )
+    .filter((w) => w && typeof w === "object")
+    .map((week) => ({
+      week: typeof week.week === "string" ? week.week : `Week unknown`,
+      percentage:
+        typeof week.percentage === "number"
+          ? Math.min(week.percentage, 100)
+          : 0,
+      riskLevel: "CRITICAL",
+      departments: Array.isArray(week.departments)
+        ? week.departments.filter((d) => typeof d === "string")
+        : [],
+      recommendation:
+        typeof week.recommendation === "string"
+          ? week.recommendation
+          : "Monitor closely",
+    }));
 
-  const byMonth = {};
-  const byDepartment = {};
-  const byType = {};
-  const totalFaculty = new Set();
+  // Similar sanitization for medium and low risk weeks
+  prediction.riskAnalysis.mediumRiskWeeks = (
+    prediction.riskAnalysis.mediumRiskWeeks || []
+  )
+    .filter((w) => w && typeof w === "object")
+    .map((week) => ({
+      week: typeof week.week === "string" ? week.week : `Week unknown`,
+      percentage:
+        typeof week.percentage === "number"
+          ? Math.min(week.percentage, 100)
+          : 0,
+      riskLevel: "MEDIUM",
+      departments: Array.isArray(week.departments)
+        ? week.departments.filter((d) => typeof d === "string")
+        : [],
+      recommendation:
+        typeof week.recommendation === "string"
+          ? week.recommendation
+          : "Plan ahead",
+    }));
 
-  leaves.forEach((leave) => {
-    const month = new Date(leave.startDate).getMonth();
-    const monthName = MONTHS_ARR[month];
-    byMonth[monthName] = (byMonth[monthName] || 0) + 1;
+  prediction.riskAnalysis.lowRiskWeeks = (
+    prediction.riskAnalysis.lowRiskWeeks || []
+  )
+    .filter((w) => w && typeof w === "object")
+    .map((week) => ({
+      week: typeof week.week === "string" ? week.week : `Week unknown`,
+      percentage: typeof week.percentage === "number" ? week.percentage : 0,
+      riskLevel: "LOW",
+      departments: Array.isArray(week.departments) ? week.departments : [],
+      recommendation:
+        typeof week.recommendation === "string"
+          ? week.recommendation
+          : "Safe period",
+    }));
 
-    const dept = leave.faculty?.department || "Unknown";
-    byDepartment[dept] = (byDepartment[dept] || 0) + 1;
+  // Sanitize recommendations
+  prediction.recommendations = (prediction.recommendations || [])
+    .filter((r) => r && typeof r === "object")
+    .map((rec) => ({
+      priority: typeof rec.priority === "string" ? rec.priority : "MEDIUM",
+      action: typeof rec.action === "string" ? rec.action : "Review",
+      reason: typeof rec.reason === "string" ? rec.reason : "Data analysis",
+      suggestedTiming:
+        typeof rec.suggestedTiming === "string" ? rec.suggestedTiming : "ASAP",
+      impact: typeof rec.impact === "string" ? rec.impact : "Important",
+    }));
 
-    byType[leave.leaveType] = (byType[leave.leaveType] || 0) + 1;
-
-    totalFaculty.add(leave.faculty?._id);
+  // Sanitize department insights
+  prediction.departmentInsights = prediction.departmentInsights || {};
+  Object.keys(prediction.departmentInsights).forEach((dept) => {
+    const insight = prediction.departmentInsights[dept];
+    prediction.departmentInsights[dept] = {
+      highRiskWeeks:
+        typeof insight?.highRiskWeeks === "number" ? insight.highRiskWeeks : 0,
+      expectedLeavePercentage:
+        typeof insight?.expectedLeavePercentage === "number"
+          ? Math.min(insight.expectedLeavePercentage, 100)
+          : 0,
+      peakMonth:
+        typeof insight?.peakMonth === "string" ? insight.peakMonth : "Unknown",
+    };
   });
 
-  return {
-    totalLeaves: leaves.length,
-    byMonth,
-    byDepartment,
-    byType,
-    averageLeavesByFaculty: Math.round(leaves.length / totalFaculty.size),
-    totalUniqueFaculty: totalFaculty.size,
-  };
+  return prediction;
+};
+
+const aggregateHistoricalData = async (months = 12) => {
+  try {
+    const pastDate = new Date();
+    pastDate.setMonth(pastDate.getMonth() - months);
+
+    // ✅ Query real leaves from database
+    const leaves = await Leave.find({
+      startDate: { $gte: pastDate }, // ✅ CHANGED: Use startDate instead of createdAt
+      status: "approved",
+    })
+      .populate("faculty", "name department email")
+      .lean();
+    console.log(leaves);
+    console.log(
+      `📊 Found ${leaves.length} approved leaves in past ${months} months`,
+    );
+
+    if (!leaves.length) {
+      console.warn("⚠️ No historical leave data found, using empty structure");
+      return {
+        totalLeaves: 0,
+        byMonth: {},
+        byDepartment: {},
+        byType: {},
+        averageLeavesByFaculty: 0,
+        totalUniqueFaculty: 0,
+        raw: [],
+      };
+    }
+
+    const MONTHS_ARR = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const byMonth = {};
+    const byDepartment = {};
+    const byType = {};
+    const totalFaculty = new Set();
+    const weeklyBreakdown = {}; // ✅ NEW: Track leaves by week
+
+    leaves.forEach((leave) => {
+      // Month aggregation
+      const month = new Date(leave.startDate).getMonth();
+      const monthName = MONTHS_ARR[month];
+      byMonth[monthName] = (byMonth[monthName] || 0) + 1;
+
+      // Department aggregation
+      const dept = leave.faculty?.department || "Unknown";
+      byDepartment[dept] = (byDepartment[dept] || 0) + 1;
+
+      // Leave type aggregation
+      byType[leave.leaveType] = (byType[leave.leaveType] || 0) + 1;
+
+      // Faculty count
+      totalFaculty.add(leave.faculty?._id);
+
+      // ✅ NEW: Weekly breakdown for pattern detection
+      const startDate = new Date(leave.startDate);
+      const weekStart = new Date(startDate);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week (Sunday)
+      const weekKey = weekStart.toISOString().split("T")[0];
+      weeklyBreakdown[weekKey] = (weeklyBreakdown[weekKey] || 0) + 1;
+    });
+
+    // ✅ NEW: Find weeks with most leaves
+    const sortedWeeks = Object.entries(weeklyBreakdown)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5); // Top 5 weeks
+
+    const peakWeeks = sortedWeeks.map(([week, count]) => ({
+      week: `Week of ${week}`,
+      leaveCount: count,
+      percentage: Math.round((count / totalFaculty.size) * 100),
+    }));
+
+    const result = {
+      totalLeaves: leaves.length,
+      totalUniqueFaculty: totalFaculty.size,
+      averageLeavesByFaculty: Math.round(leaves.length / totalFaculty.size),
+      byMonth,
+      byDepartment,
+      byType,
+      peakWeeks, // ✅ NEW: Show when most leaves happen
+      raw: leaves.map((l) => ({
+        faculty: l.faculty?.name,
+        department: l.faculty?.department,
+        type: l.leaveType,
+        startDate: new Date(l.startDate).toISOString().split("T")[0],
+        endDate: new Date(l.endDate).toISOString().split("T")[0],
+        days: l.totalDays,
+      })),
+    };
+
+    console.log("✅ Historical data aggregated:", {
+      total: result.totalLeaves,
+      faculty: result.totalUniqueFaculty,
+      departments: Object.keys(byDepartment),
+      peakWeeks: result.peakWeeks,
+    });
+
+    return result;
+  } catch (error) {
+    console.error("❌ Error aggregating historical data:", error);
+    throw error;
+  }
 };
 
 /* ────────────────────────────────────────────────────────────
@@ -110,8 +269,7 @@ const getAcademicCalendar = () => {
 
 const predictLeavePatterns = async (historicalData, academicCalendar) => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = `
 You are an AI assistant analyzing faculty leave patterns for a college.
 
@@ -291,44 +449,74 @@ const getFallbackPredictions = (historicalData) => {
    Main Prediction Function
    ──────────────────────────────────────────────────────────── */
 
+/**
+ * Get Predictive Insights using REAL historical data
+ * ✅ Fetches actual leaves from database, not mock data
+ */
 const getPredictiveInsights = async (departmentFilter = null) => {
   try {
-    // Aggregate historical data
+    console.log("🚀 Starting predictive analysis...");
+
+    // ✅ STEP 1: Aggregate REAL historical data from database
     const historicalData = await aggregateHistoricalData(12);
 
     if (historicalData.totalLeaves === 0) {
-      console.warn(
-        "No historical leave data found, using fallback predictions",
-      );
-      return getFallbackPredictions(historicalData);
+      console.warn("⚠️ No historical leave data found");
+      return {
+        source: "fallback",
+        message: "No historical data available. Please add leave records.",
+        data: getFallbackPredictions(historicalData),
+      };
     }
 
-    // Get academic calendar
+    console.log(
+      `📈 Analyzing ${historicalData.totalLeaves} approved leaves...`,
+    );
+
+    // ✅ STEP 2: Get academic calendar
     const academicCalendar = getAcademicCalendar();
 
-    // Get Gemini predictions
+    // ✅ STEP 3: Send REAL data to Gemini
+    console.log("🤖 Sending real data to Gemini...");
     let predictions = await predictLeavePatterns(
       historicalData,
       academicCalendar,
     );
 
-    // Fallback if Gemini fails
+    // ✅ STEP 4: Validate and sanitize response
     if (!predictions) {
-      console.warn("Gemini prediction failed, using fallback");
+      console.warn("⚠️ Gemini prediction failed, using fallback");
       predictions = getFallbackPredictions(historicalData);
+    } else {
+      predictions = validateAndSanitizeResponse(predictions);
+      console.log("✅ Gemini predictions received and validated");
     }
 
-    // If department filter provided, filter insights
+    // ✅ STEP 5: Filter by department if requested
     if (departmentFilter) {
       predictions = filterByDepartment(predictions, departmentFilter);
+      console.log(`🏢 Filtered predictions for ${departmentFilter}`);
     }
 
-    return predictions;
+    return {
+      source: "gemini",
+      generatedAt: new Date().toISOString(),
+      historicalDataSummary: {
+        totalLeaves: historicalData.totalLeaves,
+        totalFaculty: historicalData.totalUniqueFaculty,
+        byDepartment: historicalData.byDepartment,
+        peakWeeks: historicalData.peakWeeks,
+      },
+      data: predictions,
+    };
   } catch (error) {
-    console.error("Error in getPredictiveInsights:", error);
-    // Return fallback predictions on any error
-    const historicalData = await aggregateHistoricalData(12);
-    return getFallbackPredictions(historicalData);
+    console.error("❌ Error in getPredictiveInsights:", error);
+    // Return error response instead of crashing
+    return {
+      source: "error",
+      error: error.message,
+      data: getFallbackPredictions({}),
+    };
   }
 };
 

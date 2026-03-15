@@ -15,8 +15,9 @@ import {
   Divider,
   IconButton,
   Tooltip,
+  LinearProgress,
 } from "@mui/material";
-import { TrendingUp, Refresh, AlertTriangle } from "@mui/icons-material";
+import { TrendingUp, Refresh, WarningAmber } from "@mui/icons-material";
 import { useAuth } from "../context/authContext";
 import { predictiveService } from "../services/predictiveService";
 import InsightsSkeleton from "./InsightsSkeleton";
@@ -30,19 +31,59 @@ const DepartmentPredictiveCard = () => {
 
   useEffect(() => {
     if (user?.department) {
+      console.log("🏢 HOD Dashboard - Department:", user.department);
       fetchPredictions();
     }
   }, [user?.department]);
+
+  const sanitizePredictions = (data) => {
+    return {
+      riskAnalysis: {
+        criticalWeeks: Array.isArray(data?.riskAnalysis?.criticalWeeks)
+          ? data.riskAnalysis.criticalWeeks.filter(
+              (w) => w && typeof w === "object",
+            )
+          : [],
+        mediumRiskWeeks: Array.isArray(data?.riskAnalysis?.mediumRiskWeeks)
+          ? data.riskAnalysis.mediumRiskWeeks.filter(
+              (w) => w && typeof w === "object",
+            )
+          : [],
+        lowRiskWeeks: Array.isArray(data?.riskAnalysis?.lowRiskWeeks)
+          ? data.riskAnalysis.lowRiskWeeks.filter(
+              (w) => w && typeof w === "object",
+            )
+          : [],
+      },
+      recommendations: Array.isArray(data?.recommendations)
+        ? data.recommendations.filter((r) => r && typeof r === "object")
+        : [],
+      departmentInsights: data?.departmentInsights || {},
+      patterns: data?.patterns || {},
+    };
+  };
 
   const fetchPredictions = async () => {
     try {
       setLoading(true);
       setError(null);
+      console.log("📡 Fetching department predictions for:", user?.department);
+
+      // ✅ Pass department parameter for HOD-specific analysis
       const response = await predictiveService.getPredictions(user?.department);
-      setPredictions(response.data);
+      console.log("✅ Response:", response);
+
+      if (response?.data) {
+        const dataToSanitize = response.data.data || response.data;
+        const sanitized = sanitizePredictions(dataToSanitize);
+        console.log("✅ Sanitized:", sanitized);
+        setPredictions(sanitized);
+      } else {
+        setError("No prediction data received");
+      }
     } catch (err) {
-      console.error("Error fetching predictions:", err);
-      setError("Failed to load department predictions.");
+      console.error("❌ Error fetching predictions:", err);
+      setError(`Failed to load department predictions: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -54,7 +95,11 @@ const DepartmentPredictiveCard = () => {
       const response = await predictiveService.regeneratePredictions(
         user?.department,
       );
-      setPredictions(response.data);
+      if (response?.data) {
+        const dataToSanitize = response.data.data || response.data;
+        const sanitized = sanitizePredictions(dataToSanitize);
+        setPredictions(sanitized);
+      }
     } catch (err) {
       console.error("Error regenerating predictions:", err);
       setError("Failed to refresh predictions.");
@@ -121,11 +166,7 @@ const DepartmentPredictiveCard = () => {
             </Box>
             <Box>
               <Typography
-                sx={{
-                  fontSize: "1.1rem",
-                  fontWeight: 700,
-                  color: "#0f172a",
-                }}
+                sx={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}
               >
                 📈 {user?.department} Insights
               </Typography>
@@ -139,10 +180,7 @@ const DepartmentPredictiveCard = () => {
               onClick={handleRefresh}
               disabled={refreshing}
               size="small"
-              sx={{
-                bgcolor: "#fef9c3",
-                "&:hover": { bgcolor: "#fcd34d" },
-              }}
+              sx={{ bgcolor: "#fef9c3", "&:hover": { bgcolor: "#fcd34d" } }}
             >
               {refreshing ? (
                 <CircularProgress size={20} />
@@ -209,7 +247,7 @@ const DepartmentPredictiveCard = () => {
           {/* Risk Breakdown */}
           <Box sx={{ mb: 3 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
-              <AlertTriangle sx={{ fontSize: 20, color: "#f59e0b" }} />
+              <WarningAmber sx={{ fontSize: 20, color: "#f59e0b" }} />
               <Typography sx={{ fontWeight: 700, fontSize: "1rem" }}>
                 Upcoming Risks
               </Typography>
@@ -237,10 +275,12 @@ const DepartmentPredictiveCard = () => {
                       }}
                     >
                       <Typography sx={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                        {week.week}
+                        {typeof week.week === "string"
+                          ? week.week
+                          : `Week ${idx + 1}`}
                       </Typography>
                       <Chip
-                        label={`${week.percentage}%`}
+                        label={`${typeof week.percentage === "number" ? week.percentage : 0}%`}
                         size="small"
                         sx={{
                           bgcolor: "#f59e0b",
@@ -250,8 +290,25 @@ const DepartmentPredictiveCard = () => {
                         }}
                       />
                     </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={
+                        typeof week.percentage === "number"
+                          ? Math.min(week.percentage, 100)
+                          : 0
+                      }
+                      sx={{
+                        height: 4,
+                        borderRadius: 2,
+                        bgcolor: "#fcd34d",
+                        mb: 0.8,
+                        "& .MuiLinearProgress-bar": { bgcolor: "#f59e0b" },
+                      }}
+                    />
                     <Typography sx={{ fontSize: "0.8rem", color: "#854d0e" }}>
-                      {week.recommendation}
+                      {typeof week.recommendation === "string"
+                        ? week.recommendation
+                        : "Monitor this period"}
                     </Typography>
                   </Box>
                 ))}
@@ -269,26 +326,34 @@ const DepartmentPredictiveCard = () => {
               💡 Quick Tips
             </Typography>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {recommendations?.slice(0, 2).map((rec, idx) => (
-                <Box
-                  key={idx}
-                  sx={{
-                    p: 1.2,
-                    bgcolor: "#f0f4ff",
-                    borderRadius: "8px",
-                    borderLeft: "4px solid #7c3aed",
-                  }}
-                >
-                  <Typography sx={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    {rec.action}
-                  </Typography>
-                  <Typography
-                    sx={{ fontSize: "0.8rem", color: "#6b7280", mt: 0.3 }}
+              {recommendations && recommendations.length > 0 ? (
+                recommendations.slice(0, 2).map((rec, idx) => (
+                  <Box
+                    key={idx}
+                    sx={{
+                      p: 1.2,
+                      bgcolor: "#f0f4ff",
+                      borderRadius: "8px",
+                      borderLeft: "4px solid #7c3aed",
+                    }}
                   >
-                    {rec.reason}
-                  </Typography>
-                </Box>
-              ))}
+                    <Typography sx={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      {typeof rec.action === "string"
+                        ? rec.action
+                        : "Action Required"}
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: "0.8rem", color: "#6b7280", mt: 0.3 }}
+                    >
+                      {typeof rec.reason === "string"
+                        ? rec.reason
+                        : "Review this item"}
+                    </Typography>
+                  </Box>
+                ))
+              ) : (
+                <Alert severity="info">No recommendations at this time</Alert>
+              )}
             </Box>
           </Box>
         </Box>

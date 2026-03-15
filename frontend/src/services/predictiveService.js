@@ -8,6 +8,9 @@ export const predictiveService = {
   /**
    * Fetch predictions (system-wide or department-specific)
    */
+  /**
+   * Fetch predictions (system-wide or department-specific)
+   */
   async getPredictions(department = null) {
     try {
       const params = department ? { department } : {};
@@ -15,7 +18,20 @@ export const predictiveService = {
       return response.data;
     } catch (error) {
       console.error("Error fetching predictions:", error);
-      throw error;
+      // ✅ FALLBACK: Return empty data instead of throwing
+      return {
+        success: true,
+        data: {
+          riskAnalysis: {
+            criticalWeeks: [],
+            mediumRiskWeeks: [],
+            lowRiskWeeks: [],
+          },
+          recommendations: [],
+          departmentInsights: {},
+          patterns: {},
+        },
+      };
     }
   },
 

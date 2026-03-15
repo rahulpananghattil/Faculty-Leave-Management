@@ -22,6 +22,7 @@ app.use("/api/leaves", require("./routes/leaveRoutes"));
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/syllabus", syllabusRoutes);
+app.use("/api/analytics", require("./routes/analyticsRoutes"));
 
 app.get("/", (req, res) => res.send("Faculty Leave Management API Running"));
 
